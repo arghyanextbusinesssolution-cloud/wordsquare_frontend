@@ -1,0 +1,320 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { AdminLayout } from '@/components/admin';
+import { Card, CardContent, Button, Modal } from '@/components/ui';
+import { api } from '@/lib/api';
+import Link from 'next/link';
+import { HiArrowLeft, HiCalendar, HiCheckCircle, HiXCircle, HiPlus } from 'react-icons/hi';
+import type { AdminPuzzle } from '@/types';
+
+export default function PuzzleCalendarPage() {
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const router = useRouter();
+  const [puzzles, setPuzzles] = useState<AdminPuzzle[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [isNoPuzzleModalOpen, setIsNoPuzzleModalOpen] = useState(false);
+
+  const [todayStr, setTodayStr] = useState<string>('');
+  
+  useEffect(() => {
+    setTodayStr(getLocalDateString(new Date()));
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!isAuthenticated) {
+        router.push('/login');
+        return;
+      }
+      if (user?.role !== 'admin') {
+        router.push('/dashboard');
+        return;
+      }
+    }
+  }, [isAuthenticated, authLoading, user, router]);
+
+  useEffect(() => {
+    const loadPuzzles = async () => {
+      if (isAuthenticated && user?.role === 'admin') {
+        try {
+          const response = await api.getAdminPuzzles(1, 1000) as {
+            success: boolean;
+            data: AdminPuzzle[];
+          };
+
+          if (response.success) {
+            setPuzzles(response.data);
+          }
+        } catch (error) {
+          console.error('Failed to load puzzles:', error);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadPuzzles();
+  }, [isAuthenticated, user]);
+
+  const getDaysInMonth = (month: number, year: number) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (month: number, year: number) => {
+    return new Date(year, month, 1).getDay();
+  };
+
+  // Returns YYYY-MM-DD using LOCAL calendar date (for calendar cell labels)
+  const getLocalDateString = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Returns YYYY-MM-DD using UTC date parts (for matching stored puzzle dates)
+  // Puzzle dates are stored as UTC midnight, so we MUST read UTC parts
+  // to avoid timezone shift (e.g. "2026-03-24T00:00:00Z" reads as Mar 23 in UTC+5:30)
+  const getUTCDateString = (dateInput: string | Date) => {
+    const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getPuzzleForDate = (date: Date) => {
+    // Calendar cells are local dates (year/month/day from local calendar)
+    // Puzzle dates from API are UTC midnight ISO strings
+    // Compare both as YYYY-MM-DD to avoid timezone mismatch
+    const dateStr = getLocalDateString(date); // local calendar date string
+    return puzzles.find(p => {
+      const puzzleDate = getUTCDateString(p.puzzleDate); // UTC date string from stored ISO
+      return puzzleDate === dateStr;
+    });
+  };
+
+  const handleDateClick = (date: Date) => {
+    const puzzle = getPuzzleForDate(date);
+    if (puzzle) {
+      router.push(`/admin/puzzle/view?id=${puzzle._id}`);
+    } else {
+      setSelectedDate(date);
+      setIsNoPuzzleModalOpen(true);
+    }
+  };
+
+  const daysInMonth = getDaysInMonth(selectedMonth, selectedYear);
+  const firstDay = getFirstDayOfMonth(selectedMonth, selectedYear);
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const emptyDays = Array.from({ length: firstDay }, (_, i) => i);
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      if (selectedMonth === 0) {
+        setSelectedMonth(11);
+        setSelectedYear(selectedYear - 1);
+      } else {
+        setSelectedMonth(selectedMonth - 1);
+      }
+    } else {
+      if (selectedMonth === 11) {
+        setSelectedMonth(0);
+        setSelectedYear(selectedYear + 1);
+      } else {
+        setSelectedMonth(selectedMonth + 1);
+      }
+    }
+  };
+
+  if (authLoading || isLoading) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center py-20">
+          <div className="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (user?.role !== 'admin') {
+    return null;
+  }
+
+  return (
+    <AdminLayout>
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-6">
+          <Link href="/admin">
+            <Button variant="ghost" size="sm">
+              <HiArrowLeft className="w-5 h-5" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Puzzle Calendar</h1>
+            <p className="text-gray-600">View and manage puzzles by date</p>
+          </div>
+        </div>
+
+        {/* Calendar Navigation */}
+        <Card className="mb-6">
+          <CardContent>
+            <div className="flex items-center justify-between mb-4">
+              <Button variant="outline" onClick={() => navigateMonth('prev')}>
+                ← Previous
+              </Button>
+              <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {monthNames[selectedMonth]} {selectedYear}
+                </h2>
+              </div>
+              <Button variant="outline" onClick={() => navigateMonth('next')}>
+                Next →
+              </Button>
+            </div>
+
+            {/* Calendar Grid */}
+            <div className="grid grid-cols-7 gap-2">
+              {/* Day headers */}
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                <div key={day} className="text-center text-sm font-semibold text-gray-600 py-2">
+                  {day}
+                </div>
+              ))}
+
+              {/* Empty cells for days before month starts */}
+              {emptyDays.map((_, i) => (
+                <div key={`empty-${i}`} className="aspect-square" />
+              ))}
+
+              {/* Days of the month */}
+              {days.map(day => {
+                const date = new Date(selectedYear, selectedMonth, day);
+                const puzzle = getPuzzleForDate(date);
+                const isToday = todayStr ? getLocalDateString(date) === todayStr : false;
+                const isPast = date < new Date() && !isToday;
+
+                return (
+                  <div
+                    key={day}
+                    onClick={() => handleDateClick(date)}
+                    className={`
+                      aspect-square border-2 rounded-lg p-2 flex flex-col items-center justify-center transition-all
+                      ${isToday ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200'}
+                      ${puzzle ? 'bg-emerald-100 cursor-pointer hover:bg-emerald-200 border-emerald-200' : 'bg-white cursor-pointer hover:bg-gray-50 border-dashed'}
+                      ${isPast ? 'opacity-60' : ''}
+                    `}
+                  >
+                    <span className={`text-sm font-medium ${isToday ? 'text-emerald-700' : 'text-gray-700'}`}>
+                      {day}
+                    </span>
+                    {isToday && (
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase">Today</span>
+                    )}
+                    {puzzle && (
+                      <div className="mt-1">
+                        {puzzle.isActive ? (
+                          <HiCheckCircle className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <HiXCircle className="w-4 h-4 text-gray-400" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Legend */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Calendar Key</h3>
+          <div className="flex flex-wrap items-center gap-6 text-sm text-gray-600">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-emerald-50 border-2 border-emerald-500 rounded" />
+              <span>Today</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-emerald-100 border-2 border-emerald-200 rounded" />
+              <span>Checked (Has Puzzle)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-white border-2 border-gray-200 border-dashed rounded" />
+              <span>Unchecked (No Puzzle)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <HiCheckCircle className="w-4 h-4 text-green-500" />
+              <span>Active</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <HiXCircle className="w-4 h-4 text-gray-400" />
+              <span>Inactive</span>
+            </div>
+          </div>
+        </div>
+
+        {/* No Puzzle Modal */}
+        <Modal
+          isOpen={isNoPuzzleModalOpen}
+          onClose={() => setIsNoPuzzleModalOpen(false)}
+          title="No Puzzle for this Date"
+        >
+          <div className="py-2">
+            {selectedDate && (new Date(selectedDate).setHours(0, 0, 0, 0) < new Date().setHours(0, 0, 0, 0)) ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                <p className="text-amber-700 text-sm font-medium">
+                  Creating puzzles for past dates is not allowed. Please select today or a future date.
+                </p>
+              </div>
+            ) : (
+              <p className="text-gray-600 mb-6">
+                There is no puzzle scheduled for {selectedDate ? selectedDate.toLocaleDateString('en-US', {
+                  month: 'long',
+                  day: 'numeric',
+                  year: 'numeric'
+                }) : ''}. Would you like to create one?
+              </p>
+            )}
+
+            <div className="flex flex-col gap-3">
+              {selectedDate && (new Date(selectedDate).setHours(0, 0, 0, 0) >= new Date().setHours(0, 0, 0, 0)) && (
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    if (selectedDate) {
+                      const dateStr = getLocalDateString(selectedDate);
+                      router.push(`/admin/create?date=${dateStr}`);
+                    }
+                  }}
+                >
+                  <HiPlus className="w-5 h-5 mr-2" />
+                  Create Puzzle for this Date
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => setIsNoPuzzleModalOpen(false)}
+              >
+                {selectedDate && (new Date(selectedDate).setHours(0, 0, 0, 0) < new Date().setHours(0, 0, 0, 0)) ? 'Ok, I understand' : 'Close'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      </div>
+    </AdminLayout>
+  );
+}
