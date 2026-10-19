@@ -14,7 +14,7 @@ const securityHeaders = [
       // Allow images from anywhere (matches your remotePatterns)
       "img-src 'self' data: blob: https:",
       // Allow connections to your API, Stripe, and WebSocket for HMR
-      "connect-src 'self' https://square-puzzles-backend.onrender.com https://api.stripe.com wss:",
+      "connect-src 'self' https://wordsquaresbackend.nextbusinesssolution.com https://api.emailjs.com https://api.stripe.com wss:",
       // Allow iframes for Stripe Checkout
       "frame-src 'self' https://js.stripe.com https://checkout.stripe.com https://hooks.stripe.com",
       // Allow media from same origin
